@@ -1,0 +1,33 @@
+version: "3.9"
+
+# Phase 1: PostgreSQL only.
+# Phase 2 will add Temporal server, Redis, and the orchestrator service itself.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ach_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ach_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ach_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-ach_orchestrator}
+    ports:
+      # Expose on localhost only. Change to 0.0.0.0:5432 if you need
+      # access from other hosts (not recommended in production).
+      - "127.0.0.1:5433:5432"
+    volumes:
+      # Persist data across container restarts.
+      - postgres_data:/var/lib/postgresql/data
+      # Auto-run migration files on first container start.
+      # Files are executed in lexicographic order — hence the 001/002/003 prefix.
+      - ./internal/db/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ach_user} -d ${POSTGRES_DB:-ach_orchestrator}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:
+    driver: local
