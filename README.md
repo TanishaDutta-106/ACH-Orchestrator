@@ -7,7 +7,7 @@ A production-quality ACH payment retry system built with Go, Temporal, and Postg
 | Phase | Scope | Status |
 |-------|-------|--------|
 | 1 | Domain models, R-code routing, PostgreSQL schema, repository layer | ✅ Complete |
-| 2 | Temporal workflows, Redis idempotency, HTTP API | 🔜 Planned |
+| 2 | Temporal workflows, Redis idempotency, HTTP API | ✅ Complete |
 | 3 | NACHA file parsing and generation | 🔜 Planned |
 | 4 | Observability, alerting, production hardening | 🔜 Planned |
 
