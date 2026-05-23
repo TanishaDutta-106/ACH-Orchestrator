@@ -50,12 +50,6 @@ jobs:
           POSTGRES_SEEDS: postgres
           DB_PORT:        "5432"
         ports: ["7233:7233"]
-        options: >-
-          --health-cmd "nc -z localhost 7233 || exit 1"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 15
-          --health-start-period 60s
 
     steps:
       - uses: actions/checkout@v4
