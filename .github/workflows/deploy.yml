@@ -44,10 +44,8 @@ jobs:
       temporal:
         image: temporalio/auto-setup:1.24
         env:
-          DB:             postgres12
-          POSTGRES_USER:  achuser
-          POSTGRES_PWD:   password
-          POSTGRES_SEEDS: postgres
+          DB:                sqlite
+          SKIP_DB_CREATE:    "false"
         ports: ["7233:7233"]
         options: >-
           --health-cmd "nc -z localhost 7233 || exit 1"
