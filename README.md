@@ -1,17 +1,162 @@
 # ACH Payment Retry Orchestrator
 
-A production-quality ACH payment retry system built with Go, Temporal, and PostgreSQL.
+A production-grade ACH payment processing engine that implements NACHA return-code routing, deterministic retry logic with representment limits, and durable workflow state management. Built to handle the five canonical ACH failure scenarios (settle, non-retryable return, retryable exhaustion, compliance escalation, idempotency rejection) with full audit trails.
 
-## Phase Status
+GitHub topics: `go` `temporal` `ach` `nacha` `payments` `fintech` `distributed-systems` `postgresql` `redis`
 
-| Phase | Scope | Status |
-|-------|-------|--------|
-| 1 | Domain models, R-code routing, PostgreSQL schema, repository layer | ✅ Complete |
-| 2 | Temporal workflows, Redis idempotency, HTTP API | 🔜 Planned |
-| 3 | NACHA file parsing and generation | 🔜 Planned |
-| 4 | Observability, alerting, production hardening | 🔜 Planned |
+---
 
-## Phase 1 — Quick Start
+## Architecture Diagram
+
+```
+                         ┌─────────────────────────────────────────┐
+                         │              AWS VPC (10.0.0.0/16)      │
+                         │                                          │
+   Internet              │  Public Subnets                          │
+   ──────────►  ALB ─────┼──► ECS Fargate                          │
+   (port 80)             │     ├── server (chi REST API :8080)      │
+                         │     └── worker (Temporal worker)         │
+                         │            │                             │
+                         │  Private Subnets                         │
+                         │     ├── RDS PostgreSQL (db.t3.micro)     │
+                         │     ├── ElastiCache Redis (cache.t3.micro)│
+                         │     └── Temporal (Cloud or EC2)          │
+                         └─────────────────────────────────────────┘
+
+Request flow:
+  POST /payments  →  chi router  →  DB (create)  →  Temporal (start workflow)
+  Temporal worker →  Activities  →  DB (update)  →  Redis (idempotency check)
+  NACHA return    →  POST /payments/{id}/return   →  Temporal (signal workflow)
+```
+
+---
+
+## State Machine Diagram
+
+```
+                    ┌─────────────┐
+                    │  INITIATED  │  (created via POST /payments)
+                    └──────┬──────┘
+                           │ activity: submit to ACH network
+                           ▼
+                    ┌─────────────┐
+                    │   PENDING   │◄──────────────────────────┐
+                    └──────┬──────┘                           │
+                           │ ACH submission confirmed          │ retry (R01/R09)
+                           ▼                                  │ up to MaxRepresentments
+                    ┌─────────────┐                           │
+                    │  SUBMITTED  │                           │
+                    └──────┬──────┘                           │
+                           │                                  │
+              ┌────────────┼────────────────┐                 │
+              │            │                │                 │
+              ▼            ▼                ▼                 │
+         No return    Return signal    Return signal          │
+              │        (retryable)    (non-retryable          │
+              │            │          / compliance)           │
+              ▼            ▼                │                 │
+        ┌──────────┐ ┌──────────┐          │                 │
+        │ SETTLED  │ │ RETURNED │──────────┘                 │
+        └──────────┘ └──────┬───┘          │                 │
+          (terminal)        │              │                 │
+                            │ R01/R09      │ R02-R04,R06-    │
+                            │ count < max  │ R08,R10-R16,    │
+                            └─────────────┘ R20,R23,R29     │
+                                           │                 │
+                            ┌──────────────┘                 │
+                            │                                │
+              ┌─────────────┼──────────────┐                 │
+              ▼             ▼              ▼                  │
+ ┌──────────────────┐ ┌──────────────┐ ┌────────────────────┴──────┐
+ │ FAILED_NON_      │ │ COMPLIANCE_  │ │ FAILED_RETRYABLE_EXHAUSTED │
+ │ RETRYABLE        │ │ ESCALATION   │ │ (representments exhausted) │
+ └──────────────────┘ └──────────────┘ └────────────────────────────┘
+       (terminal)          (terminal)              (terminal)
+```
+
+---
+
+## R-Code Handling Table
+
+| R-Code | Description                        | Category        | Action                          |
+|--------|------------------------------------|-----------------|---------------------------------|
+| R01    | Insufficient Funds                 | Retryable       | Re-present up to MaxRepresentments (24h delay) |
+| R02    | Account Closed                     | Non-Retryable   | Fail immediately                |
+| R03    | No Account / Unable to Locate      | Non-Retryable   | Fail immediately                |
+| R04    | Invalid Account Number             | Non-Retryable   | Fail immediately                |
+| R05    | Unauthorized Debit (Corp)          | Compliance      | Escalate to compliance team     |
+| R06    | Returned per ODFI Request          | Non-Retryable   | Fail immediately                |
+| R07    | Authorization Revoked              | Non-Retryable   | Fail immediately                |
+| R08    | Payment Stopped                    | Non-Retryable   | Fail immediately                |
+| R09    | Uncollected Funds                  | Retryable       | Re-present up to MaxRepresentments |
+| R10    | Customer Advises Not Authorized    | Non-Retryable   | Fail immediately                |
+| R11    | Check Truncation Entry Return      | Non-Retryable   | Fail immediately                |
+| R12    | Branch Sold to Another DFI         | Non-Retryable   | Fail immediately                |
+| R13    | Invalid ACH Routing Number         | Non-Retryable   | Fail immediately                |
+| R14    | Representative Payee Deceased      | Non-Retryable   | Fail immediately                |
+| R15    | Beneficiary / Account Deceased     | Non-Retryable   | Fail immediately                |
+| R16    | Account Frozen                     | Non-Retryable   | Fail immediately                |
+| R17    | File Record Edit Criteria          | Compliance      | Escalate to compliance team     |
+| R20    | Non-Transaction Account            | Non-Retryable   | Fail immediately                |
+| R23    | Credit Entry Refused by Receiver   | Non-Retryable   | Fail immediately                |
+| R29    | Corporate Customer Advises Not Auth| Non-Retryable   | Fail immediately                |
+
+---
+
+## NACHA Rules Implemented
+
+- **94-character fixed-width record format** — each line is exactly 94 characters
+- **Record type identification** — `1` (File Header), `5` (Batch Header), `6` (Entry Detail), `8` (Batch Control), `9` (File Control)
+- **Amount field decoding** — 10-digit zero-padded integer with implied 2 decimal places (`0000010000` = `$100.00`)
+- **Trace number extraction** — columns 79–94 of the Entry Detail record
+- **Line ending normalization** — `strings.TrimRight(raw, "\r")` applied before length check; space-trimming is intentionally omitted to prevent short-record false negatives
+- **Return entry detection** — transaction code `21` (checking debit return) and `26` (savings debit return)
+- **Batch hash validation** — routing number sum verification on Batch Control record
+
+---
+
+## Tech Stack Justifications
+
+**Why Go** — Go's goroutine model and compiled binary output make it ideal for financial services backends where sub-millisecond latency and predictable GC pauses matter. The standard library's `net/http`, `encoding/json`, and `database/sql` provide everything needed without framework overhead. Static binaries simplify Docker images to under 50 MB with distroless base images, which matters for container startup time in ECS Fargate cold starts.
+
+**Why Temporal** — ACH payment processing is inherently a long-running, multi-step workflow: submission, waiting for return windows (2–5 business days), conditional retry or escalation. Temporal encodes this as durable code — if the worker crashes mid-workflow, execution resumes exactly where it left off on the next worker. Temporal's signal mechanism maps directly to the NACHA return-code delivery model, and its built-in retry policies handle transient activity failures without custom backoff logic.
+
+**Why pgx/v5** — pgx is the only Go PostgreSQL driver that supports the full PostgreSQL wire protocol natively, including `pgx.CopyFrom` for bulk inserts, `pgxpool` for connection pool management, and type-safe scan targets. The standard `database/sql` interface adds an abstraction layer that obscures PostgreSQL-specific error codes (needed for distinguishing constraint violations from connectivity errors). pgx/v5 also has measurably lower allocation counts per query than `lib/pq`.
+
+**Why chi** — chi is a lightweight HTTP router that uses only the standard library's `net/http` interfaces, with no custom context types. This means handlers are compatible with any middleware written for `net/http` and the router adds approximately 1 µs per request. The pattern-matching syntax (`/payments/{id}`) is familiar from other routers but compiles to a radix tree, not regex, making it faster for the handful of endpoints this service exposes.
+
+**Why Redis for idempotency** — Trace numbers must be deduplicated across worker restarts, pod reschedules, and concurrent requests. Redis `SETNX` with a TTL provides atomic check-and-set in a single round trip with no distributed lock required. Storing trace numbers in PostgreSQL would work but adds a table scan or index lookup on the critical submission path; Redis keeps this under 1 ms even under load.
+
+**Why shopspring/decimal** — Floating-point arithmetic is categorically wrong for monetary amounts. `float64` cannot represent `$0.10` exactly, and accumulated rounding errors in retry logic or representment calculations can produce penny discrepancies that fail NACHA amount reconciliation. `shopspring/decimal` uses arbitrary-precision base-10 arithmetic and its `String()` output is always correctly rounded, making serialization safe for NACHA amount field encoding.
+
+---
+
+## Local Setup
+
+Requires: Docker, Docker Compose, Go 1.22, `curl`
+
+```bash
+# 1. Clone and start all dependencies
+git clone https://github.com/yourorg/ach-orchestrator && cd ach-orchestrator
+docker compose up -d
+
+# 2. Wait for Temporal UI to be available (~20 seconds)
+open http://localhost:8088   # Temporal Web UI
+
+# 3. Start the worker (separate terminal)
+go run ./cmd/worker
+
+# 4. Start the API server (separate terminal)
+go run ./cmd/server
+
+# 5. Verify health
+curl http://localhost:8080/health
+# {"status":"ok","postgres":"ok","redis":"ok","temporal":"ok"}
+```
+
+---
+
+## AWS Deployment Instructions
 
 ### Prerequisites
 
