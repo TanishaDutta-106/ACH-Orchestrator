@@ -8,13 +8,12 @@ on:
 
 env:
   AWS_REGION:   us-east-1
-  ECR_REPO:     ach-orchestrator          # must match terraform var.project_name
+  ECR_REPO:     ach-orchestrator
   ECS_CLUSTER:  ach-orchestrator
   SERVER_SVC:   ach-orchestrator-server
   WORKER_SVC:   ach-orchestrator-worker
 
 jobs:
-  # ── Test — runs on every PR ──────────────────────────────────────────────────
   test:
     name: go test
     runs-on: ubuntu-latest
@@ -24,8 +23,8 @@ jobs:
         image: postgres:16-alpine
         env:
           POSTGRES_USER:     achuser
-          POSTGRES_PASSWORD: testpassword
-          POSTGRES_DB:       ach_test
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB:       ach_db
         ports: ["5432:5432"]
         options: >-
           --health-cmd pg_isready
@@ -45,9 +44,10 @@ jobs:
       temporal:
         image: temporalio/auto-setup:1.24
         env:
-          DB:                    sqlite
-          SKIP_DB_CREATE:        "false"
-          TEMPORAL_ADDRESS:      0.0.0.0:7233
+          DB:               postgres12
+          POSTGRES_USER:    achuser
+          POSTGRES_PWD:     password
+          POSTGRES_SEEDS:   postgres
         ports: ["7233:7233"]
 
     steps:
@@ -58,6 +58,14 @@ jobs:
           go-version: "1.22"
           cache: true
 
+      - name: Run migrations
+        run: |
+          PGPASSWORD=password psql -h localhost -U achuser -d ach_db -f internal/db/migrations/001_create_payments.up.sql
+          PGPASSWORD=password psql -h localhost -U achuser -d ach_db -f internal/db/migrations/002_create_return_events.up.sql
+          PGPASSWORD=password psql -h localhost -U achuser -d ach_db -f internal/db/migrations/003_create_audit_log.up.sql
+          PGPASSWORD=password psql -h localhost -U achuser -d ach_db -f internal/db/migrations/004_phase3_audit_columns.sql
+          PGPASSWORD=password psql -h localhost -U achuser -d ach_db -f internal/db/migrations/005_drop_payment_audit_log.up.sql
+
       - name: go vet
         run: go vet ./...
 
@@ -67,18 +75,18 @@ jobs:
           golint -set_exit_status ./...
 
       - name: Unit tests
-        run: go test -v -count=1 -run "^TestUnit" ./...
+        run: go test -v -count=1 -run "^Test[^I]" ./...
 
       - name: Integration tests
-        # R01 exhaustion test is excluded — it requires 24 h real-time retry delays.
-        # Run it locally with temporal time-skipping or in a dedicated nightly job.
         run: go test -v -count=1 -timeout 120s -tags integration -run "^TestIntegration" -skip "TestIntegration_R01_ExhaustedRetries" ./tests/...
         env:
-          TEST_DB_URL:       postgres://achuser:testpassword@localhost:5432/ach_test?sslmode=disable
-          TEST_REDIS_ADDR:   localhost:6379
+          DATABASE_URL:       postgres://achuser:password@localhost:5432/ach_db?sslmode=disable
+          TEST_DB_URL:        postgres://achuser:password@localhost:5432/ach_db?sslmode=disable
+          TEST_REDIS_ADDR:    localhost:6379
           TEST_TEMPORAL_ADDR: localhost:7233
+          REDIS_ADDR:         localhost:6379
+          TEMPORAL_HOST_PORT: localhost:7233
 
-  # ── Build & push Docker image — on merge to main ──────────────────────────
   build-push:
     name: Build + Push to ECR
     runs-on: ubuntu-latest
@@ -86,7 +94,7 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
     permissions:
-      id-token: write   # required for OIDC auth
+      id-token: write
       contents: read
 
     outputs:
@@ -117,7 +125,6 @@ jobs:
           docker push "$REGISTRY/$ECR_REPO:latest"
           echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
 
-  # ── Deploy to ECS — after successful push ─────────────────────────────────
   deploy:
     name: Deploy to ECS
     runs-on: ubuntu-latest
