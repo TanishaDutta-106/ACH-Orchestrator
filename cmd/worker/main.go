@@ -17,11 +17,11 @@ import (
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
 
-	"github.com/tanisha/ach-retry-orchestrator/internal/activities"
-	"github.com/tanisha/ach-retry-orchestrator/internal/db"
-	"github.com/tanisha/ach-retry-orchestrator/internal/domain"
-	achredis "github.com/tanisha/ach-retry-orchestrator/internal/redis"
-	achworkflow "github.com/tanisha/ach-retry-orchestrator/internal/workflow"
+	"github.com/TanishaDutta-106/ACH-Orchestrator/internal/activities"
+	"github.com/TanishaDutta-106/ACH-Orchestrator/internal/db"
+	"github.com/TanishaDutta-106/ACH-Orchestrator/internal/domain"
+	achredis "github.com/TanishaDutta-106/ACH-Orchestrator/internal/redis"
+	achworkflow "github.com/TanishaDutta-106/ACH-Orchestrator/internal/workflow"
 )
 
 func main() {

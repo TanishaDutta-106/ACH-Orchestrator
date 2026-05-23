@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/tanisha/ach-retry-orchestrator/internal/domain"
+	"github.com/TanishaDutta-106/ACH-Orchestrator/internal/domain"
 )
 
 // ────────────────────────────────────────────────────────────────────────────

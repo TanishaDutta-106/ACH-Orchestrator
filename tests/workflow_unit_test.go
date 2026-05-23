@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/suite"
 	"go.temporal.io/sdk/testsuite"
 
-	"github.com/tanisha/ach-retry-orchestrator/internal/activities"
-	"github.com/tanisha/ach-retry-orchestrator/internal/domain"
-	achworkflow "github.com/tanisha/ach-retry-orchestrator/internal/workflow"
+	"github.com/TanishaDutta-106/ACH-Orchestrator/internal/activities"
+	"github.com/TanishaDutta-106/ACH-Orchestrator/internal/domain"
+	achworkflow "github.com/TanishaDutta-106/ACH-Orchestrator/internal/workflow"
 )
 
 // ────────────────────────────────────────────────────────────────────────────

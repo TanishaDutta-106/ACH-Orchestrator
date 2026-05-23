@@ -3,7 +3,7 @@ package domain_test
 import (
 	"testing"
 
-	"github.com/tanisha/ach-retry-orchestrator/internal/domain"
+	"github.com/TanishaDutta-106/ACH-Orchestrator/internal/domain"
 )
 
 // TestRouteRCode_Retryable verifies that all retryable R-codes route correctly.

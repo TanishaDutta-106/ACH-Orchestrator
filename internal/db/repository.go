@@ -16,7 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/shopspring/decimal"
-	"github.com/tanisha/ach-retry-orchestrator/internal/domain"
+	"github.com/TanishaDutta-106/ACH-Orchestrator/internal/domain"
 )
 
 // Repository holds the pgxpool connection pool and exposes all database

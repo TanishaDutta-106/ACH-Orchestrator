@@ -1,87 +1,57 @@
-# Phase 2: PostgreSQL (app), PostgreSQL (temporal), Redis, Temporal, Temporal UI
 services:
-
-  # ── PostgreSQL (app — unchanged from Phase 1) ────────────────────────────────
   postgres:
     image: postgres:16-alpine
-    container_name: ach_postgres
-    restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-ach_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ach_secret}
-      POSTGRES_DB: ${POSTGRES_DB:-ach_orchestrator}
+      POSTGRES_USER: achuser
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: ach_db
     ports:
-      - "127.0.0.1:5433:5432"
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./internal/db/migrations:/docker-entrypoint-initdb.d:ro
+      - ./internal/db/migrations:/docker-entrypoint-initdb.d
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ach_user} -d ${POSTGRES_DB:-ach_orchestrator}"]
+      test: ["CMD-SHELL", "pg_isready -U achuser -d ach_db"]
       interval: 5s
-      timeout: 5s
+      timeout: 3s
       retries: 10
 
-  # ── PostgreSQL (Temporal internal store — separate from app DB) ───────────────
-  temporal_postgres:
-    image: postgres:16-alpine
-    container_name: ach_temporal_postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: temporal
-      POSTGRES_PASSWORD: temporal
-      POSTGRES_DB: temporal
-    volumes:
-      - temporal_postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U temporal"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
-  # ── Redis ─────────────────────────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
-    container_name: ach_redis
-    restart: unless-stopped
     ports:
-      - "127.0.0.1:6380:6379"
+      - "6380:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
-      timeout: 5s
+      timeout: 3s
       retries: 10
 
-  # ── Temporal server ───────────────────────────────────────────────────────────
   temporal:
     image: temporalio/auto-setup:1.24
-    container_name: ach_temporal
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:7233:7233"
-    environment:
-      - DB=postgres12
-      - DB_PORT=5432
-      - POSTGRES_USER=temporal
-      - POSTGRES_PWD=temporal
-      - POSTGRES_SEEDS=temporal_postgres
     depends_on:
-      temporal_postgres:
+      postgres:
         condition: service_healthy
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: achuser
+      POSTGRES_PWD: password
+      POSTGRES_SEEDS: postgres
+      DYNAMIC_CONFIG_FILE_PATH: /etc/temporal/dynamicconfig/development.yaml
+    ports:
+      - "7233:7233"
+    volumes:
+      - ./temporal-config:/etc/temporal/dynamicconfig
 
-  # ── Temporal UI ───────────────────────────────────────────────────────────────
   temporal-ui:
     image: temporalio/ui:2.26.2
-    container_name: ach_temporal_ui
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:8080:8080"
-    environment:
-      - TEMPORAL_ADDRESS=temporal:7233
     depends_on:
       - temporal
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://localhost:3000
+    ports:
+      - "8088:8080"
 
 volumes:
   postgres_data:
-    driver: local
-  temporal_postgres_data:
-    driver: local

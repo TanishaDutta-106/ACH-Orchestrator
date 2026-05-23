@@ -17,9 +17,9 @@ import (
 	"github.com/google/uuid"
 	"go.temporal.io/sdk/activity"
 
-	"github.com/tanisha/ach-retry-orchestrator/internal/db"
-	"github.com/tanisha/ach-retry-orchestrator/internal/domain"
-	achredis "github.com/tanisha/ach-retry-orchestrator/internal/redis"
+	"github.com/TanishaDutta-106/ACH-Orchestrator/internal/db"
+	"github.com/TanishaDutta-106/ACH-Orchestrator/internal/domain"
+	achredis "github.com/TanishaDutta-106/ACH-Orchestrator/internal/redis"
 )
 
 // SubmitToACHInput is the argument passed to SubmitToACH.

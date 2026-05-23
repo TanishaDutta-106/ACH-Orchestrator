@@ -18,8 +18,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
-	"github.com/tanisha/ach-retry-orchestrator/internal/db"
-	"github.com/tanisha/ach-retry-orchestrator/internal/domain"
+	"github.com/TanishaDutta-106/ACH-Orchestrator/internal/db"
+	"github.com/TanishaDutta-106/ACH-Orchestrator/internal/domain"
 )
 
 // newTestRepo creates a Repository connected to the DATABASE_URL environment

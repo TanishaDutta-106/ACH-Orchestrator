@@ -16,8 +16,8 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/google/uuid"
-	"github.com/tanisha/ach-retry-orchestrator/internal/activities"
-	"github.com/tanisha/ach-retry-orchestrator/internal/domain"
+	"github.com/TanishaDutta-106/ACH-Orchestrator/internal/activities"
+	"github.com/TanishaDutta-106/ACH-Orchestrator/internal/domain"
 )
 
 // ────────────────────────────────────────────────────────────────────────────
