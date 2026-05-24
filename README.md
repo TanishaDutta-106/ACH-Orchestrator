@@ -31,6 +31,20 @@ Request flow:
 
 ---
 
+## Live Dashboard
+
+A real-time payment state dashboard is served at `GET /dashboard`.
+
+- Auto-refreshes every 3 seconds via `GET /api/payments` — no page reload
+- Summary bar showing live count per state
+- Color-coded state badges (settled → green, failed → red, escalation → orange)
+- Click any row to expand the full audit log inline
+- Embedded in the Go binary via `//go:embed` — zero external dependencies, no build step
+
+![ACH Orchestrator Dashboard](docs/dashboard.png)
+
+---
+
 ## State Machine
 
 ```
