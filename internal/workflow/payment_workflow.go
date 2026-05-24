@@ -97,39 +97,26 @@ func PaymentWorkflow(ctx workflow.Context, input PaymentWorkflowInput) error {
 	}
 	logger.Info("PaymentWorkflow: transitioned to PENDING", "payment_id", input.PaymentID)
 
-	// ── Retry loop ───────────────────────────────────────────────────────────
 	representmentCount := 0
 
 	for {
-		// ── Step 2: Generate trace, check idempotency, store, submit ─────────
-
-		// GenerateTraceNumber is pure (no side effects) so it can live in the
-		// workflow directly.  Each loop iteration produces a new unique trace.
 		traceNumber := generateTraceNumber(ctx, representmentCount, input.PaymentID)
 
-		// Check idempotency — if this trace was already submitted (e.g. workflow
-		// replaying after a crash mid-activity), skip submission.
 		checkOut, err := checkIdempotency(ctx, traceNumber)
 		if err != nil {
 			return err
 		}
 
 		if !checkOut.AlreadySubmitted {
-			// Store the trace number before submitting so that if the worker
-			// crashes between store and submit, the next replay skips submission.
 			if err := storeTraceNumber(ctx, traceNumber); err != nil {
 				return err
 			}
-
-			// Transition PENDING → SUBMITTED before sending to ACH so the DB
-			// always reflects the most recent intent.
 			if err := persistTransition(ctx, input.PaymentID,
 				domain.StatePending, domain.StateSubmitted,
 				fmt.Sprintf("submitting to ACH, trace=%s, representment=%d",
 					traceNumber, representmentCount)); err != nil {
 				return err
 			}
-
 			if _, err := submitToACH(ctx, input, traceNumber); err != nil {
 				return err
 			}
@@ -145,45 +132,38 @@ func PaymentWorkflow(ctx workflow.Context, input PaymentWorkflowInput) error {
 			)
 		}
 
-		// ── Step 3: Race between ReturnSignal and 72-hour settlement timer ────
-
-		// settlementTimer fires if no return is received within 72 hours.
-		// Per spec this is a fixed value — do not parameterise.
 		settlementTimer := workflow.NewTimer(ctx, 72*time.Hour)
-
 		returnCh := workflow.GetSignalChannel(ctx, ReturnSignalName)
 
-		// selector blocks until one of the two cases fires.
 		var returnSig ReturnSignal
 		returnReceived := false
 
 		sel := workflow.NewSelector(ctx)
-
 		sel.AddFuture(settlementTimer, func(f workflow.Future) {
-			// Timer fired — no return received in 72 hours → SETTLED.
 			_ = f.Get(ctx, nil)
 		})
-
 		sel.AddReceive(returnCh, func(ch workflow.ReceiveChannel, more bool) {
 			ch.Receive(ctx, &returnSig)
 			returnReceived = true
 		})
-
 		sel.Select(ctx)
 
-		// ── Step 4 / 5: Branch on what fired ─────────────────────────────────
-
 		if !returnReceived {
-			// ── Happy path: settlement timer fired ───────────────────────────
+			// ── Terminal: SETTLED ─────────────────────────────────────────────
 			logger.Info("PaymentWorkflow: 72h window elapsed, settling",
 				"payment_id", input.PaymentID,
 			)
-			return persistTransition(ctx, input.PaymentID,
+			if err := persistTransition(ctx, input.PaymentID,
 				domain.StateSubmitted, domain.StateSettled,
-				"settled — no return within 72h")
+				"settled — no return within 72h"); err != nil {
+				return err
+			}
+			// +++ WEBHOOK
+			fireWebhook(ctx, input.PaymentID, domain.StateSettled, "", traceNumber)
+			// +++ END WEBHOOK
+			return nil
 		}
 
-		// ── Return signal received — route the R-code ─────────────────────────
 		category, description, _ := domain.RouteRCode(returnSig.RCode)
 		logger.Info("PaymentWorkflow: return received",
 			"payment_id", input.PaymentID,
@@ -192,8 +172,6 @@ func PaymentWorkflow(ctx workflow.Context, input PaymentWorkflowInput) error {
 			"description", description,
 		)
 
-		// Persist SUBMITTED → RETURNED before branching so the DB always
-		// reflects that a return was received, regardless of what happens next.
 		if err := persistTransition(ctx, input.PaymentID,
 			domain.StateSubmitted, domain.StateReturned,
 			fmt.Sprintf("R-code %s received: %s", returnSig.RCode, description)); err != nil {
@@ -202,40 +180,58 @@ func PaymentWorkflow(ctx workflow.Context, input PaymentWorkflowInput) error {
 
 		switch category {
 		case domain.CategoryNonRetryable:
-			// ── Non-retryable: terminate ──────────────────────────────────────
+			// ── Terminal: FAILED_NON_RETRYABLE ───────────────────────────────
 			logger.Info("PaymentWorkflow: non-retryable return, failing",
 				"payment_id", input.PaymentID,
 				"rcode", returnSig.RCode,
 			)
-			return persistTransition(ctx, input.PaymentID,
+			if err := persistTransition(ctx, input.PaymentID,
 				domain.StateReturned, domain.StateFailedNonRetryable,
-				fmt.Sprintf("non-retryable R-code %s: %s", returnSig.RCode, description))
+				fmt.Sprintf("non-retryable R-code %s: %s", returnSig.RCode, description)); err != nil {
+				return err
+			}
+			// +++ WEBHOOK
+			fireWebhook(ctx, input.PaymentID, domain.StateFailedNonRetryable, returnSig.RCode, traceNumber)
+			// +++ END WEBHOOK
+			return nil
 
 		case domain.CategoryComplianceEscalation:
-			// ── Compliance escalation: terminate ─────────────────────────────
+			// ── Terminal: COMPLIANCE_ESCALATION ──────────────────────────────
 			logger.Info("PaymentWorkflow: compliance escalation",
 				"payment_id", input.PaymentID,
 				"rcode", returnSig.RCode,
 			)
-			return persistTransition(ctx, input.PaymentID,
+			if err := persistTransition(ctx, input.PaymentID,
 				domain.StateReturned, domain.StateComplianceEscalation,
-				fmt.Sprintf("compliance escalation R-code %s: %s", returnSig.RCode, description))
+				fmt.Sprintf("compliance escalation R-code %s: %s", returnSig.RCode, description)); err != nil {
+				return err
+			}
+			// +++ WEBHOOK
+			fireWebhook(ctx, input.PaymentID, domain.StateComplianceEscalation, returnSig.RCode, traceNumber)
+			// +++ END WEBHOOK
+			return nil
 
 		case domain.CategoryRetryable:
 			if representmentCount >= domain.MaxRepresentments {
-				// ── Exhausted representments ──────────────────────────────────
+				// ── Terminal: FAILED_RETRYABLE_EXHAUSTED ─────────────────────
 				logger.Info("PaymentWorkflow: retryable exhausted",
 					"payment_id", input.PaymentID,
 					"rcode", returnSig.RCode,
 					"representment_count", representmentCount,
 				)
-				return persistTransition(ctx, input.PaymentID,
+				if err := persistTransition(ctx, input.PaymentID,
 					domain.StateReturned, domain.StateFailedRetryableExhausted,
 					fmt.Sprintf("retryable R-code %s exhausted after %d representments",
-						returnSig.RCode, representmentCount))
+						returnSig.RCode, representmentCount)); err != nil {
+					return err
+				}
+				// +++ WEBHOOK
+				fireWebhook(ctx, input.PaymentID, domain.StateFailedRetryableExhausted, returnSig.RCode, traceNumber)
+				// +++ END WEBHOOK
+				return nil
 			}
 
-			// ── Schedule retry: sleep, then loop ─────────────────────────────
+			// ── Non-terminal: schedule retry ──────────────────────────────────
 			delay := domain.RetryDelayFor(returnSig.RCode)
 			logger.Info("PaymentWorkflow: scheduling retry",
 				"payment_id", input.PaymentID,
@@ -243,32 +239,57 @@ func PaymentWorkflow(ctx workflow.Context, input PaymentWorkflowInput) error {
 				"delay", delay,
 				"representment_after_sleep", representmentCount+1,
 			)
-
-			// Transition back to PENDING before sleeping so the DB reflects
-			// that we intend to retry.
 			if err := persistTransition(ctx, input.PaymentID,
 				domain.StateReturned, domain.StatePending,
 				fmt.Sprintf("retrying after R-code %s, sleeping %s", returnSig.RCode, delay)); err != nil {
 				return err
 			}
-
-			// Use workflow.Sleep — never time.Sleep inside a workflow.
 			if err := workflow.Sleep(ctx, delay); err != nil {
 				return err
 			}
-
 			representmentCount++
-			// Loop back to the top — new trace number, new ACH submission.
 			continue
 
 		default:
-			// Unknown category — treat as NonRetryable (safe default from Phase 1).
-			return persistTransition(ctx, input.PaymentID,
+			// ── Terminal: unknown R-code → NonRetryable ───────────────────────
+			if err := persistTransition(ctx, input.PaymentID,
 				domain.StateReturned, domain.StateFailedNonRetryable,
-				fmt.Sprintf("unknown R-code %s treated as non-retryable", returnSig.RCode))
+				fmt.Sprintf("unknown R-code %s treated as non-retryable", returnSig.RCode)); err != nil {
+				return err
+			}
+			// +++ WEBHOOK
+			fireWebhook(ctx, input.PaymentID, domain.StateFailedNonRetryable, returnSig.RCode, traceNumber)
+			// +++ END WEBHOOK
+			return nil
 		}
 	}
 }
+
+// +++ WEBHOOK HELPER
+// fireWebhook launches NotifyWebhook in a detached goroutine with its own
+// activity options. The workflow does not wait on it and ignores its result.
+func fireWebhook(ctx workflow.Context, paymentID uuid.UUID, state domain.PaymentState, rcode, traceNumber string) {
+	webhookCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		ScheduleToCloseTimeout: 30 * time.Second,
+		RetryPolicy: &temporal.RetryPolicy{
+			MaximumAttempts: 1, // activity handles its own 3-attempt backoff internally
+		},
+	})
+
+	// Build a minimal Payment for the activity — only the fields the payload needs.
+	p := &domain.Payment{
+		ID:          paymentID,
+		State:       state,
+		ReturnCode:  rcode,
+		TraceNumber: traceNumber,
+	}
+
+	workflow.Go(webhookCtx, func(gCtx workflow.Context) {
+		var act *activities.Activities
+		_ = workflow.ExecuteActivity(gCtx, act.NotifyWebhook, p).Get(gCtx, nil)
+	})
+}
+// +++ END WEBHOOK HELPER
 
 // ────────────────────────────────────────────────────────────────────────────
 // Private helpers — thin wrappers that keep the main workflow readable

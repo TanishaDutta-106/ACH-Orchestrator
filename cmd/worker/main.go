@@ -75,6 +75,9 @@ func main() {
 	// Register activities via the struct so Temporal resolves the receiver.
 	w.RegisterActivity(acts)
 
+	// Alternatively, we could register each activity function individually:
+	w.RegisterActivity(acts.NotifyWebhook)
+
 	log.Printf("worker: starting on task queue %q", domain.TemporalTaskQueue)
 
 	// Run blocks until the process receives SIGINT/SIGTERM.
