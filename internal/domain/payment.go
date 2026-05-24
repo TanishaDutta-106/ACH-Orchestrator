@@ -65,49 +65,49 @@ const (
 type Payment struct {
 	// ID is the system-generated primary key. UUIDs are used so that IDs are
 	// safe to expose externally without leaking sequence information.
-	ID uuid.UUID `db:"id"`
+	ID uuid.UUID `db:"id" json:"id"`
 
 	// PortfolioID groups payments belonging to the same originating business
 	// or logical account portfolio. Used for filtering and reporting.
-	PortfolioID uuid.UUID `db:"portfolio_id"`
+	PortfolioID uuid.UUID `db:"portfolio_id" json:"portfolio_id"`
 
 	// Amount is the payment value in USD. Stored as NUMERIC(19,4) in Postgres.
 	// shopspring/decimal handles serialization/deserialization cleanly with pgx.
-	Amount decimal.Decimal `db:"amount"`
+	Amount decimal.Decimal `db:"amount" json:"amount"`
 
 	// State is the current lifecycle position of this payment.
 	// See PaymentState constants above for valid values and semantics.
-	State PaymentState `db:"state"`
+	State PaymentState `db:"state" json:"state"`
 
 	// ReturnCode is the NACHA R-code received from the RDFI, e.g. "R01".
 	// Empty string when no return has been received yet.
-	ReturnCode string `db:"return_code"`
+	ReturnCode string `db:"return_code" json:"return_code"`
 
 	// RepresentmentCount tracks how many times this payment has been
 	// re-submitted after an initial return. NACHA allows a maximum of 2
 	// representments for eligible return codes. See MaxRepresentments in
 	// rules.go.
-	RepresentmentCount int `db:"representment_count"`
+	RepresentmentCount int `db:"representment_count" json:"representment_count"`
 
 	// TraceNumber is the 15-digit ACH trace number assigned by the ODFI.
 	// It uniquely identifies an ACH entry within a file. Stored as a string
 	// because leading zeros are significant and numeric types would drop them.
-	TraceNumber string `db:"trace_number"`
+	TraceNumber string `db:"trace_number" json:"trace_number"`
 
 	// CreatedAt is the UTC timestamp when this payment record was first
 	// inserted. Set once at creation; never updated.
-	CreatedAt time.Time `db:"created_at"`
+	CreatedAt time.Time `db:"created_at" json:"created_at"`
 
 	// UpdatedAt is refreshed on every state transition. Useful for detecting
 	// stale records and for ordering queries by recency.
-	UpdatedAt time.Time `db:"updated_at"`
+	UpdatedAt time.Time `db:"updated_at" json:"updated_at"`
 
 	// SettledAt is non-nil only when the payment reaches StateSettled.
 	// Nil for all other states.
-	SettledAt *time.Time `db:"settled_at"`
+	SettledAt *time.Time `db:"settled_at" json:"settled_at,omitempty"`
 
 	// FailedAt is non-nil only when the payment reaches a terminal failure
 	// state (StateFailedNonRetryable, StateFailedRetryableExhausted, or
 	// StateComplianceEscalation). Nil for all other states.
-	FailedAt *time.Time `db:"failed_at"`
+	FailedAt *time.Time `db:"failed_at" json:"failed_at,omitempty"`
 }

@@ -10,6 +10,7 @@
 package api
 
 import (
+	_ "embed" // +++ ADDED
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -27,6 +28,12 @@ import (
 	"github.com/TanishaDutta-106/ACH-Orchestrator/internal/simulator"
 	achworkflow "github.com/TanishaDutta-106/ACH-Orchestrator/internal/workflow"
 )
+
+// +++ ADDED — embeds internal/api/static/dashboard.html into the binary at compile time.
+// The path is relative to this file (internal/api/handlers.go).
+//
+//go:embed static/dashboard.html
+var dashboardHTML []byte
 
 // ── Validation regexes ────────────────────────────────────────────────────────
 
@@ -128,6 +135,10 @@ func (h *Handler) Router() http.Handler {
 			r.Get("/audit", h.getAudit)
 		})
 	})
+
+	// +++ ADDED
+	r.Get("/dashboard",    h.handleDashboard)
+	r.Get("/api/payments", h.handleGetAllPayments)
 
 	return r
 }
@@ -363,4 +374,27 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, ErrorResponse{Error: msg})
+}
+
+// ── Dashboard + API payments ──────────────────────────────────────────────────
+// +++ ADDED
+
+// handleDashboard serves the embedded live dashboard HTML.
+func (h *Handler) handleDashboard(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(dashboardHTML)
+}
+
+// handleGetAllPayments returns the 100 most recent payments as a JSON array.
+func (h *Handler) handleGetAllPayments(w http.ResponseWriter, r *http.Request) {
+	payments, err := h.repo.GetAllPayments(r.Context(), 100)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to fetch payments: "+err.Error())
+		return
+	}
+	if payments == nil {
+		payments = []domain.Payment{}
+	}
+	writeJSON(w, http.StatusOK, payments)
 }

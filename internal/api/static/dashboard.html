@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ACH Orchestrator — Payment Dashboard</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Cormorant+Garamond:wght@300;400;600&family=DM+Sans:wght@300;400;500&display=swap');
+
+  :root {
+    --bg:          #0d0608;
+    --bg2:         #110809;
+    --surface:     #180c0e;
+    --surface2:    #1f1014;
+    --surface3:    #261419;
+    --border:      #3a1c22;
+    --border2:     #4d2530;
+    --rose:        #e8547a;
+    --rose-bright: #f472a0;
+    --rose-dim:    rgba(232, 84, 122, 0.15);
+    --rose-glow:   rgba(232, 84, 122, 0.08);
+    --blush:       #c2637e;
+    --text:        #d4b0bc;
+    --text-dim:    #7a4d58;
+    --text-bright: #f0dce4;
+
+    --green:       #7ecfa0;
+    --green-dim:   rgba(126, 207, 160, 0.12);
+    --red:         #e8547a;
+    --red-dim:     rgba(232, 84, 122, 0.15);
+    --orange:      #e8956a;
+    --orange-dim:  rgba(232, 149, 106, 0.13);
+    --blue:        #a87ecf;
+    --blue-dim:    rgba(168, 126, 207, 0.13);
+    --yellow:      #cfb67e;
+    --yellow-dim:  rgba(207, 182, 126, 0.13);
+
+    --mono: 'DM Mono', monospace;
+    --serif: 'Cormorant Garamond', serif;
+    --sans: 'DM Sans', sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 13px;
+    line-height: 1.6;
+    min-height: 100vh;
+    position: relative;
+    overflow-x: hidden;
+  }
+
+  /* ── Nebula background ── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 80% 60% at 70% 20%, rgba(140, 30, 60, 0.35) 0%, transparent 60%),
+      radial-gradient(ellipse 50% 40% at 20% 80%, rgba(100, 20, 45, 0.25) 0%, transparent 55%),
+      radial-gradient(ellipse 60% 50% at 85% 75%, rgba(80, 15, 35, 0.2) 0%, transparent 50%),
+      radial-gradient(ellipse 30% 30% at 40% 40%, rgba(180, 50, 90, 0.1) 0%, transparent 60%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ── Sparkle canvas ── */
+  #sparkle-canvas {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  /* ── Header ── */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 32px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(18, 8, 10, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .logo-mark {
+    width: 28px; height: 28px;
+    border-radius: 6px;
+    background: linear-gradient(135deg, #8c1e3c 0%, #e8547a 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--serif);
+    font-size: 14px;
+    color: #fff;
+    font-weight: 600;
+    box-shadow: 0 0 16px rgba(232, 84, 122, 0.4), 0 2px 8px rgba(0,0,0,0.4);
+    flex-shrink: 0;
+  }
+  .logo-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .logo-title {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    color: var(--text-bright);
+    text-transform: uppercase;
+  }
+  .logo-sub {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    text-transform: uppercase;
+  }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    font-family: var(--mono);
+    font-size: 10px;
+  }
+  .live-indicator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--rose);
+  }
+  .live-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--rose);
+    box-shadow: 0 0 6px var(--rose), 0 0 12px rgba(232, 84, 122, 0.4);
+    animation: livepulse 2s ease-in-out infinite;
+  }
+  @keyframes livepulse {
+    0%, 100% { opacity: 1; transform: scale(1); box-shadow: 0 0 6px var(--rose), 0 0 12px rgba(232,84,122,0.4); }
+    50%       { opacity: 0.6; transform: scale(0.85); box-shadow: 0 0 3px var(--rose); }
+  }
+  #last-updated { color: var(--text-dim); }
+  #refresh-countdown {
+    color: var(--blush);
+    min-width: 68px;
+    text-align: right;
+    letter-spacing: 0.06em;
+  }
+
+  /* ── Layout ── */
+  main {
+    padding: 28px 32px;
+    max-width: 1440px;
+    position: relative;
+    z-index: 2;
+  }
+
+  /* ── Section label ── */
+  .section-label {
+    font-family: var(--serif);
+    font-size: 22px;
+    font-weight: 300;
+    color: var(--text-bright);
+    letter-spacing: 0.02em;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+  }
+  .section-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, var(--border2), transparent);
+  }
+
+  /* ── Summary bar ── */
+  #summary-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 28px;
+  }
+  .state-pill {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 16px;
+    border-radius: 6px;
+    border: 1px solid var(--border2);
+    background: rgba(24, 12, 14, 0.8);
+    backdrop-filter: blur(8px);
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.05em;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    cursor: default;
+  }
+  .state-pill:hover { box-shadow: 0 0 12px rgba(232,84,122,0.1); }
+  .state-pill .pill-count {
+    font-size: 18px;
+    font-weight: 500;
+    line-height: 1;
+    font-family: var(--serif);
+  }
+  .state-pill .pill-label {
+    color: var(--text-dim);
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .pill-green  { border-left: 2px solid var(--green);  }
+  .pill-red    { border-left: 2px solid var(--red);    }
+  .pill-orange { border-left: 2px solid var(--orange); }
+  .pill-blue   { border-left: 2px solid var(--blue);   }
+  .pill-yellow { border-left: 2px solid var(--yellow); }
+  .pill-green .pill-count  { color: var(--green);  }
+  .pill-red .pill-count    { color: var(--red);    }
+  .pill-orange .pill-count { color: var(--orange); }
+  .pill-blue .pill-count   { color: var(--blue);   }
+  .pill-yellow .pill-count { color: var(--yellow); }
+
+  /* ── Table wrapper ── */
+  .table-wrap {
+    background: rgba(20, 10, 12, 0.75);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 4px 32px rgba(0,0,0,0.5), inset 0 1px 0 rgba(232,84,122,0.08);
+  }
+  .table-header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(30, 14, 18, 0.6);
+  }
+  .table-title {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    color: var(--rose);
+    text-transform: uppercase;
+  }
+  #payment-count {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 0.06em;
+  }
+
+  table { width: 100%; border-collapse: collapse; }
+  thead th {
+    padding: 10px 18px;
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+    background: rgba(26, 12, 16, 0.5);
+    white-space: nowrap;
+  }
+
+  tbody tr.payment-row {
+    border-bottom: 1px solid rgba(58, 28, 34, 0.6);
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  tbody tr.payment-row:last-child { border-bottom: none; }
+  tbody tr.payment-row:hover { background: rgba(232, 84, 122, 0.05); }
+  tbody tr.payment-row.expanded { background: rgba(232, 84, 122, 0.06); }
+
+  tbody td {
+    padding: 12px 18px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text);
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+  td.id-col {
+    color: var(--text-dim);
+    font-size: 10px;
+    letter-spacing: 0.06em;
+  }
+  td.amount-col {
+    color: var(--text-bright);
+    font-family: var(--serif);
+    font-size: 15px;
+    font-weight: 400;
+    letter-spacing: 0.02em;
+  }
+  td.expand-col {
+    width: 32px;
+    color: var(--text-dim);
+    font-size: 10px;
+    text-align: center;
+    opacity: 0.5;
+  }
+  tbody tr.payment-row:hover td.expand-col { opacity: 1; color: var(--rose); }
+
+  /* ── State badge ── */
+  .state-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 9px;
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    font-family: var(--mono);
+  }
+  .badge-dot { width: 4px; height: 4px; border-radius: 50%; flex-shrink: 0; background: currentColor; }
+  .state-green  { color: var(--green);  background: var(--green-dim);  }
+  .state-red    { color: var(--red);    background: var(--red-dim);    }
+  .state-orange { color: var(--orange); background: var(--orange-dim); }
+  .state-blue   { color: var(--blue);   background: var(--blue-dim);   }
+  .state-yellow { color: var(--yellow); background: var(--yellow-dim); }
+
+  /* ── Audit row ── */
+  tr.audit-row td {
+    padding: 0;
+    background: rgba(12, 6, 8, 0.9);
+  }
+  .audit-inner {
+    padding: 16px 22px 22px;
+    border-top: 1px solid var(--border);
+  }
+  .audit-title {
+    font-family: var(--mono);
+    color: var(--text-dim);
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+    font-weight: 500;
+  }
+  .audit-table { width: 100%; border-collapse: collapse; }
+  .audit-table th {
+    padding: 6px 14px;
+    text-align: left;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+    font-weight: 500;
+    font-family: var(--mono);
+    background: rgba(30, 14, 18, 0.4);
+  }
+  .audit-table td {
+    padding: 8px 14px;
+    font-size: 10px;
+    color: var(--text);
+    border-bottom: 1px solid rgba(58,28,34,0.4);
+    white-space: nowrap;
+    font-family: var(--mono);
+  }
+  .audit-table tr:last-child td { border-bottom: none; }
+  .audit-arrow { color: var(--rose); margin: 0 4px; opacity: 0.6; }
+  .audit-reason { color: var(--text-dim); font-size: 10px; }
+  .audit-loading, .audit-empty { color: var(--text-dim); padding: 10px 0; font-family: var(--mono); font-size: 10px; }
+  .audit-error { color: var(--red); padding: 10px 0; font-family: var(--mono); font-size: 10px; }
+
+  /* ── Status ── */
+  #status-message {
+    display: none;
+    padding: 48px;
+    text-align: center;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 0.06em;
+  }
+  #status-message.error { color: var(--red); }
+  #status-message.show  { display: block; }
+
+  @keyframes shimmer {
+    0%   { opacity: 1; }
+    50%  { opacity: 0.7; }
+    100% { opacity: 1; }
+  }
+  .refreshing { animation: shimmer 0.35s ease; }
+</style>
+</head>
+<body>
+
+<canvas id="sparkle-canvas"></canvas>
+
+<header>
+  <div class="logo">
+    <div class="logo-mark">✦</div>
+    <div class="logo-text">
+      <div class="logo-title">ACH Orchestrator</div>
+      <div class="logo-sub">Payment Dashboard · Live</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="live-indicator">
+      <div class="live-dot"></div>
+      <span>LIVE</span>
+    </div>
+    <span id="last-updated">—</span>
+    <span id="refresh-countdown">next in 3s</span>
+  </div>
+</header>
+
+<main>
+  <div class="section-label">Payment States</div>
+  <div id="summary-bar"></div>
+
+  <div class="table-wrap">
+    <div class="table-header-row">
+      <span class="table-title">✦ Payments</span>
+      <span id="payment-count">—</span>
+    </div>
+    <table id="payments-table">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Amount</th>
+          <th>State</th>
+          <th>Return Code</th>
+          <th>Repr. Count</th>
+          <th>Created At</th>
+          <th>Updated At</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="payments-tbody"></tbody>
+    </table>
+    <div id="status-message"></div>
+  </div>
+</main>
+
+<script>
+/* ── Sparkles ── */
+(function() {
+  const canvas = document.getElementById('sparkle-canvas');
+  const ctx = canvas.getContext('2d');
+  let W, H, stars = [];
+
+  const COLORS = [
+    'rgba(232,84,122,', 'rgba(244,114,160,',
+    'rgba(194,99,126,', 'rgba(240,220,228,',
+    'rgba(168,126,207,', 'rgba(255,255,255,'
+  ];
+
+  function resize() {
+    W = canvas.width  = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+  }
+
+  function mkStar() {
+    return {
+      x:    Math.random() * W,
+      y:    Math.random() * H,
+      r:    Math.random() * 1.2 + 0.2,
+      a:    Math.random(),
+      da:   (Math.random() * 0.008 + 0.002) * (Math.random() < 0.5 ? 1 : -1),
+      col:  COLORS[Math.floor(Math.random() * COLORS.length)],
+      // cross-sparkle chance
+      cross: Math.random() < 0.18,
+      cr:   Math.random() * 5 + 3,
+    };
+  }
+
+  function drawCross(s) {
+    const a = s.a;
+    ctx.save();
+    ctx.translate(s.x, s.y);
+    ctx.globalAlpha = a * 0.9;
+    ctx.strokeStyle = s.col + '1)';
+    ctx.lineWidth = 0.5;
+    const len = s.cr;
+    // horizontal
+    ctx.beginPath(); ctx.moveTo(-len, 0); ctx.lineTo(len, 0); ctx.stroke();
+    // vertical
+    ctx.beginPath(); ctx.moveTo(0, -len); ctx.lineTo(0, len); ctx.stroke();
+    // diagonals (shorter)
+    const d = len * 0.5;
+    ctx.lineWidth = 0.3;
+    ctx.globalAlpha = a * 0.5;
+    ctx.beginPath(); ctx.moveTo(-d, -d); ctx.lineTo(d, d); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(d, -d); ctx.lineTo(-d, d); ctx.stroke();
+    ctx.restore();
+  }
+
+  function frame() {
+    ctx.clearRect(0, 0, W, H);
+    for (const s of stars) {
+      s.a += s.da;
+      if (s.a > 1 || s.a < 0) { s.da *= -1; s.a = Math.max(0, Math.min(1, s.a)); }
+      if (s.cross) {
+        drawCross(s);
+      } else {
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+        ctx.fillStyle = s.col + s.a.toFixed(2) + ')';
+        ctx.fill();
+      }
+    }
+    requestAnimationFrame(frame);
+  }
+
+  resize();
+  for (let i = 0; i < 160; i++) stars.push(mkStar());
+  window.addEventListener('resize', () => { resize(); stars = []; for(let i=0;i<160;i++) stars.push(mkStar()); });
+  requestAnimationFrame(frame);
+})();
+
+/* ── Dashboard ── */
+(function () {
+  const REFRESH_INTERVAL = 3000;
+  const STATE_COLOR = {
+    SETTLED:                    'green',
+    FAILED_NON_RETRYABLE:       'red',
+    FAILED_RETRYABLE_EXHAUSTED: 'red',
+    COMPLIANCE_ESCALATION:      'orange',
+    INITIATED:                  'blue',
+    PENDING:                    'blue',
+    SUBMITTED:                  'blue',
+    RETURNED:                   'yellow',
+  };
+  const PILL_ORDER = [
+    ['SETTLED',                    'green'],
+    ['INITIATED',                  'blue'],
+    ['PENDING',                    'blue'],
+    ['SUBMITTED',                  'blue'],
+    ['RETURNED',                   'yellow'],
+    ['FAILED_NON_RETRYABLE',       'red'],
+    ['FAILED_RETRYABLE_EXHAUSTED', 'red'],
+    ['COMPLIANCE_ESCALATION',      'orange'],
+  ];
+
+  const tbody        = document.getElementById('payments-tbody');
+  const summaryBar   = document.getElementById('summary-bar');
+  const paymentCount = document.getElementById('payment-count');
+  const lastUpdated  = document.getElementById('last-updated');
+  const countdown    = document.getElementById('refresh-countdown');
+  const statusMsg    = document.getElementById('status-message');
+  const expanded     = new Set();
+
+  let countdownVal = 3, countdownTimer = null, fetchTimer = null;
+
+  function fmtTime(iso) {
+    if (!iso) return '—';
+    return new Date(iso).toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
+  }
+
+  function stateBadge(state) {
+    const col = 'state-' + (STATE_COLOR[state] || 'blue');
+    return `<span class="state-badge ${col}"><span class="badge-dot"></span>${state}</span>`;
+  }
+
+  function buildSummary(payments) {
+    const counts = {};
+    for (const p of payments) counts[p.state] = (counts[p.state] || 0) + 1;
+    summaryBar.innerHTML = PILL_ORDER
+      .filter(([s]) => counts[s])
+      .map(([s, c]) => `
+        <div class="state-pill pill-${c}">
+          <span class="pill-count">${counts[s]}</span>
+          <span class="pill-label">${s.replace(/_/g, '_\u200B')}</span>
+        </div>`).join('');
+  }
+
+  function showStatus(msg, isError) {
+    statusMsg.textContent = msg;
+    statusMsg.className = 'show' + (isError ? ' error' : '');
+    tbody.innerHTML = '';
+  }
+
+  function hideStatus() { statusMsg.className = ''; }
+
+  function buildRow(p) {
+    const shortID = p.id ? p.id.substring(0, 8) : '—';
+    const amount  = p.amount !== undefined ? '$' + p.amount : '—';
+    const isExp   = expanded.has(p.id);
+    const tr = document.createElement('tr');
+    tr.className = 'payment-row' + (isExp ? ' expanded' : '');
+    tr.dataset.id = p.id;
+    tr.innerHTML = `
+      <td class="id-col">${shortID}&hellip;</td>
+      <td class="amount-col">${amount}</td>
+      <td>${stateBadge(p.state)}</td>
+      <td>${p.return_code || '—'}</td>
+      <td>${p.representment_count !== undefined ? p.representment_count : '—'}</td>
+      <td>${fmtTime(p.created_at)}</td>
+      <td>${fmtTime(p.updated_at)}</td>
+      <td class="expand-col">${isExp ? '▲' : '▼'}</td>`;
+    tr.addEventListener('click', () => toggleAudit(p.id, tr));
+    return tr;
+  }
+
+  function toggleAudit(id, tr) {
+    const existing = document.getElementById('audit-' + id);
+    if (existing) {
+      existing.remove();
+      expanded.delete(id);
+      tr.classList.remove('expanded');
+      tr.querySelector('.expand-col').textContent = '▼';
+      return;
+    }
+    expanded.add(id);
+    tr.classList.add('expanded');
+    tr.querySelector('.expand-col').textContent = '▲';
+
+    const auditTr = document.createElement('tr');
+    auditTr.className = 'audit-row';
+    auditTr.id = 'audit-' + id;
+    auditTr.innerHTML = `<td colspan="8"><div class="audit-inner">
+      <div class="audit-title">✦ Audit Log — ${id}</div>
+      <div class="audit-loading">Loading…</div>
+    </div></td>`;
+    tr.after(auditTr);
+
+    fetch('/payments/' + id + '/audit')
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(entries => {
+        const inner = auditTr.querySelector('.audit-inner');
+        if (!entries || entries.length === 0) {
+          inner.innerHTML = `<div class="audit-title">✦ Audit Log — ${id}</div>
+            <div class="audit-empty">No audit entries found.</div>`;
+          return;
+        }
+        const rows = entries.map(e => `<tr>
+          <td>${fmtTime(e.created_at)}</td>
+          <td>${stateBadge(e.from_state || '—')}</td>
+          <td class="audit-arrow">→</td>
+          <td>${stateBadge(e.to_state || '—')}</td>
+          <td class="audit-reason">${e.reason || '—'}</td>
+        </tr>`).join('');
+        inner.innerHTML = `
+          <div class="audit-title">✦ Audit Log — ${id}</div>
+          <table class="audit-table">
+            <thead><tr><th>Timestamp</th><th>From</th><th></th><th>To</th><th>Reason</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>`;
+      })
+      .catch(err => {
+        auditTr.querySelector('.audit-inner').innerHTML =
+          `<div class="audit-title">✦ Audit Log — ${id}</div>
+           <div class="audit-error">Failed to load audit log (${err}).</div>`;
+      });
+  }
+
+  function renderPayments(payments) {
+    if (!payments || payments.length === 0) {
+      showStatus('No payments found.', false);
+      buildSummary([]);
+      paymentCount.textContent = '0 payments';
+      return;
+    }
+    hideStatus();
+    buildSummary(payments);
+    paymentCount.textContent = payments.length + ' payment' + (payments.length !== 1 ? 's' : '');
+
+    const frag = document.createDocumentFragment();
+    for (const p of payments) {
+      frag.appendChild(buildRow(p));
+      const existingAudit = document.getElementById('audit-' + p.id);
+      if (existingAudit && expanded.has(p.id))
+        frag.appendChild(existingAudit.cloneNode(true));
+    }
+    tbody.innerHTML = '';
+    tbody.appendChild(frag);
+    tbody.classList.add('refreshing');
+    setTimeout(() => tbody.classList.remove('refreshing'), 350);
+  }
+
+  function fetchPayments() {
+    fetch('/api/payments')
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(data => {
+        renderPayments(data);
+        lastUpdated.textContent = 'Updated ' + new Date().toISOString().substring(11, 19) + ' UTC';
+      })
+      .catch(err => {
+        showStatus('Error fetching payments: ' + err, true);
+        lastUpdated.textContent = 'Last fetch failed';
+      })
+      .finally(scheduleNext);
+  }
+
+  function scheduleNext() {
+    clearInterval(countdownTimer);
+    clearTimeout(fetchTimer);
+    countdownVal = 3;
+    countdown.textContent = 'next in 3s';
+    countdownTimer = setInterval(() => {
+      countdownVal--;
+      countdown.textContent = countdownVal > 0 ? 'next in ' + countdownVal + 's' : 'refreshing…';
+      if (countdownVal <= 0) clearInterval(countdownTimer);
+    }, 1000);
+    fetchTimer = setTimeout(fetchPayments, REFRESH_INTERVAL);
+  }
+
+  fetchPayments();
+})();
+</script>
+</body>
+</html>
